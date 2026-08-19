@@ -98,4 +98,28 @@ public class GlobalExceptionHandler {
 
         return problem;
     }
+
+    @ExceptionHandler(ResourceAlreadyExistsException.class)
+    public ProblemDetail handleAlreadyExists(
+            ResourceAlreadyExistsException exception
+    ) {
+        ProblemDetail problem = ProblemDetail.forStatus(HttpStatus.CONFLICT);
+
+        problem.setTitle("Resource already exists");
+        problem.setDetail(exception.getMessage());
+
+        return problem;
+    }
+
+    @ExceptionHandler(InvalidCredentialsException.class)
+    public ProblemDetail handleInvalidCredentials(
+            InvalidCredentialsException exception
+    ) {
+        ProblemDetail problem = ProblemDetail.forStatus(HttpStatus.UNAUTHORIZED);
+
+        problem.setTitle("Authentication failed");
+        problem.setDetail(exception.getMessage());
+
+        return problem;
+    }
 }

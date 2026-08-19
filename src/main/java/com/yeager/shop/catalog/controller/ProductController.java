@@ -9,6 +9,7 @@ import jakarta.validation.Valid;
 import jakarta.validation.constraints.Pattern;
 import jakarta.validation.constraints.Size;
 import lombok.RequiredArgsConstructor;
+import org.springframework.http.ResponseEntity;
 import org.springframework.web.bind.annotation.*;
 
 
@@ -19,14 +20,14 @@ public class ProductController {
     private final ProductService productService;
 
     @GetMapping
-    public PagedResponse<ProductListItemResponse> getProducts(
+    public ResponseEntity<PagedResponse<ProductListItemResponse>> getProducts(
             @Valid @ModelAttribute ProductListQuery query
     ) {
-        return productService.getProducts(query);
+        return ResponseEntity.ok(productService.getProducts(query));
     }
 
     @GetMapping("/{slug}")
-    public ProductDetailsResponse getProduct(
+    public ResponseEntity<ProductDetailsResponse> getProduct(
             @PathVariable
             @Size(
                     min = 1,
@@ -39,6 +40,6 @@ public class ProductController {
             )
             String slug
     ) {
-        return productService.getProduct(slug);
+        return ResponseEntity.ok(productService.getProduct(slug));
     }
 }
