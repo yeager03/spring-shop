@@ -1,5 +1,7 @@
 package com.yeager.shop.common.config;
 
+import com.yeager.shop.common.security.RestAccessDeniedHandler;
+import com.yeager.shop.common.security.RestAuthenticationEntryPoint;
 import org.springframework.context.annotation.Bean;
 import org.springframework.context.annotation.Configuration;
 import org.springframework.http.HttpMethod;
@@ -21,7 +23,9 @@ public class SecurityConfig {
     @Bean
     public SecurityFilterChain securityFilterChain(
             HttpSecurity http,
-            JwtAuthenticationConverter jwtAuthenticationConverter
+            JwtAuthenticationConverter jwtAuthenticationConverter,
+            RestAuthenticationEntryPoint authenticationEntryPoint,
+            RestAccessDeniedHandler accessDeniedHandler
     ) throws Exception {
         http
                 .csrf(AbstractHttpConfigurer::disable)
@@ -32,8 +36,29 @@ public class SecurityConfig {
                         authorizeRequests
                                 .requestMatchers(
                                         HttpMethod.GET,
-                                        "/products", "/products/**"
+                                        "/products",
+                                        "/products/**",
+                                        "/categories",
+                                        "/categories/**"
                                 ).permitAll()
+
+                                .requestMatchers(
+                                        HttpMethod.POST,
+                                        "/products",
+                                        "/categories"
+                                ).hasAnyRole("MANAGER", "ADMIN")
+
+                                .requestMatchers(
+                                        HttpMethod.PATCH,
+                                        "/products/**",
+                                        "/categories/**"
+                                ).hasAnyRole("MANAGER", "ADMIN")
+
+                                .requestMatchers(
+                                        HttpMethod.DELETE,
+                                        "/products/**",
+                                        "/categories/**"
+                                ).hasAnyRole("MANAGER", "ADMIN")
 
                                 .requestMatchers(
                                         HttpMethod.POST,
@@ -44,6 +69,10 @@ public class SecurityConfig {
                                 .anyRequest().authenticated()
                 )
                 .oauth2ResourceServer(oauth2 -> oauth2
+                        .authenticationEntryPoint(authenticationEntryPoint)
+                        .accessDeniedHandler(accessDeniedHandler)
+
+
                         .jwt(jwt -> jwt
                                 .jwtAuthenticationConverter(
                                         jwtAuthenticationConverter
