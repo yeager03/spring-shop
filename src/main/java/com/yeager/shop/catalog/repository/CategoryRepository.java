@@ -15,9 +15,12 @@ public interface CategoryRepository extends JpaRepository<Category, Long> {
             FROM ProductCategory pc
             WHERE pc.product.productId = :productId
               AND pc.category.isActive = true
-            ORDER BY pc.category.position ASC
+            ORDER BY pc.category.position ASC,
+                     pc.category.categoryId ASC
             """)
     List<Category> findActiveByProductId(
             @Param("productId") Long productId
     );
+
+    boolean existsBySlug(String slug);
 }

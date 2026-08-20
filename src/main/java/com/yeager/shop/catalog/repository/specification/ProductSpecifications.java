@@ -4,7 +4,6 @@ import com.yeager.shop.catalog.entity.Product;
 import com.yeager.shop.catalog.entity.ProductCategory;
 import jakarta.persistence.criteria.Root;
 import jakarta.persistence.criteria.Subquery;
-import lombok.NoArgsConstructor;
 import org.springframework.data.jpa.domain.Specification;
 
 import java.util.List;
@@ -53,10 +52,17 @@ public final class ProductSpecifications {
                             productCategory.get("product"),
                             root
                     ),
+                    
                     productCategory
                             .get("category")
                             .get("categoryId")
-                            .in(categoryIds)
+                            .in(categoryIds),
+
+                    criteriaBuilder.isTrue(
+                            productCategory
+                                    .get("category")
+                                    .get("isActive")
+                    )
             );
 
             return criteriaBuilder.exists(subquery);
