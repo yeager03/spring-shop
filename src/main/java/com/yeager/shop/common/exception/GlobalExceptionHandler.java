@@ -122,4 +122,17 @@ public class GlobalExceptionHandler {
 
         return problem;
     }
+
+    @ExceptionHandler(InvalidOperationException.class)
+    public ProblemDetail handleInvalidOperation(
+            InvalidOperationException exception
+    ) {
+        ProblemDetail problem =
+                ProblemDetail.forStatus(HttpStatus.BAD_REQUEST);
+
+        problem.setTitle("Invalid operation");
+        problem.setDetail(exception.getMessage());
+
+        return problem;
+    }
 }
