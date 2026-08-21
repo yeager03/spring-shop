@@ -9,6 +9,7 @@ import jakarta.validation.constraints.Positive;
 import jakarta.validation.constraints.Size;
 import lombok.RequiredArgsConstructor;
 import org.springframework.http.HttpStatus;
+import org.springframework.http.MediaType;
 import org.springframework.http.ResponseEntity;
 import org.springframework.web.bind.annotation.*;
 
@@ -93,6 +94,77 @@ public class ProductController {
             Long categoryId
     ) {
         productService.removeCategory(productId, categoryId);
+
+        return ResponseEntity
+                .noContent()
+                .build();
+    }
+
+    @PostMapping(
+            path = "/{productId}/images",
+            consumes = MediaType.MULTIPART_FORM_DATA_VALUE
+    )
+    public ResponseEntity<ProductImageResponse> addImage(
+            @PathVariable
+            @Positive(message = "{product.common.id.positive}")
+            Long productId,
+
+            @Valid
+            @ModelAttribute
+            ProductImageUploadRequest request
+    ) {
+        return ResponseEntity
+                .status(HttpStatus.CREATED)
+                .body(productService.addImage(productId, request));
+    }
+
+    @DeleteMapping("/{productId}/images/{imageId}")
+    public ResponseEntity<Void> deleteImage(
+            @PathVariable
+            @Positive(message = "{product.common.id.positive}")
+            Long productId,
+
+            @PathVariable
+            @Positive(message = "{product.image.id.positive}")
+            Long imageId
+    ) {
+        productService.deleteImage(productId, imageId);
+
+        return ResponseEntity
+                .noContent()
+                .build();
+    }
+
+    @PatchMapping("/{productId}/images/{imageId}")
+    public ResponseEntity<ProductImageResponse> updateImage(
+            @PathVariable
+            @Positive(message = "{product.common.id.positive}")
+            Long productId,
+
+            @PathVariable
+            @Positive(message = "{product.image.id.positive}")
+            Long imageId,
+
+            @Valid
+            @RequestBody
+            UpdateProductImageRequest request
+    ) {
+        return ResponseEntity.ok(
+                productService.updateImagePosition(
+                        productId,
+                        imageId,
+                        request
+                )
+        );
+    }
+
+    @DeleteMapping("/{productId}")
+    public ResponseEntity<Void> deactivateProduct(
+            @PathVariable
+            @Positive(message = "{product.common.id.positive}")
+            Long productId
+    ) {
+        productService.deactivateProduct(productId);
 
         return ResponseEntity
                 .noContent()

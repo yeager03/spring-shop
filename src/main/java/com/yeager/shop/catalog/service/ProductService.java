@@ -1,10 +1,7 @@
 package com.yeager.shop.catalog.service;
 
 import com.yeager.shop.catalog.dto.*;
-import com.yeager.shop.catalog.entity.Category;
-import com.yeager.shop.catalog.entity.Product;
-import com.yeager.shop.catalog.entity.ProductCategory;
-import com.yeager.shop.catalog.entity.ProductCategoryId;
+import com.yeager.shop.catalog.entity.*;
 import com.yeager.shop.catalog.repository.CategoryRepository;
 import com.yeager.shop.catalog.repository.ProductCategoryRepository;
 import com.yeager.shop.catalog.repository.ProductImageRepository;
@@ -16,7 +13,10 @@ import com.yeager.shop.common.dto.PagedResponse;
 import com.yeager.shop.common.exception.InvalidOperationException;
 import com.yeager.shop.common.exception.ResourceAlreadyExistsException;
 import com.yeager.shop.common.exception.ResourceNotFoundException;
+import com.yeager.shop.common.exception.StorageException;
+import com.yeager.shop.common.storage.StorageService;
 import lombok.RequiredArgsConstructor;
+import org.springframework.dao.DataAccessException;
 import org.springframework.data.domain.Page;
 import org.springframework.data.domain.PageRequest;
 import org.springframework.data.domain.Pageable;
@@ -24,6 +24,7 @@ import org.springframework.data.domain.Sort;
 import org.springframework.data.jpa.domain.Specification;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
+import org.springframework.web.multipart.MultipartFile;
 
 import java.util.*;
 import java.util.stream.Collectors;
@@ -36,6 +37,10 @@ public class ProductService {
     private final ProductImageRepository productImageRepository;
     private final CategoryRepository categoryRepository;
     private final ProductCategoryRepository productCategoryRepository;
+
+    private final StorageService storageService;
+
+    private static final long MAX_IMAGE_SIZE = 5 * 1024 * 1024;
 
     @Transactional(readOnly = true)
     public PagedResponse<ProductListItemResponse> getProducts(ProductListQuery query) {
@@ -104,10 +109,7 @@ public class ProductService {
         List<ProductImageResponse> images = productImageRepository
                 .findAllByProductId(product.getProductId())
                 .stream()
-                .map(image -> new ProductImageResponse(
-                        image.getImageKey(),
-                        image.getPosition()
-                ))
+                .map(this::toImageResponse)
                 .toList();
 
         List<CategoryResponse> categories = categoryRepository
@@ -211,6 +213,183 @@ public class ProductService {
         productCategoryRepository.deleteLink(productId, categoryId);
     }
 
+    @Transactional
+    public ProductImageResponse addImage(Long productId, ProductImageUploadRequest request) {
+        Product product = productRepository.findById(productId)
+                .orElseThrow(() ->
+                        new ResourceNotFoundException("Product not found by id: " + productId)
+                );
+
+        MultipartFile file = request.getFile();
+
+        validateImage(file);
+
+        int position = request.getPosition();
+
+        if (productImageRepository.existsPosition(productId, position)) {
+            throw new ResourceAlreadyExistsException(
+                    "Product image position is already occupied"
+            );
+        }
+
+        String extension = resolveImageExtension(file);
+
+        String imageKey = generateImageKey(productId, extension);
+
+        storageService.upload(imageKey, file);
+
+        try {
+            ProductImage image = new ProductImage();
+
+            image.setProduct(product);
+            image.setImageKey(imageKey);
+            image.setPosition(position);
+
+            ProductImage savedImage = productImageRepository.saveAndFlush(image);
+
+            return toImageResponse(savedImage);
+        } catch (DataAccessException exception) {
+            try {
+                storageService.delete(imageKey);
+            } catch (StorageException cleanupException) {
+                exception.addSuppressed(cleanupException);
+            }
+
+            throw exception;
+        }
+    }
+
+    @Transactional
+    public void deleteImage(Long productId, Long imageId) {
+        ProductImage image = productImageRepository
+                .findByIdAndProductId(imageId, productId)
+                .orElseThrow(() ->
+                        new ResourceNotFoundException("Product image not found by id: " + imageId)
+                );
+
+        String imageKey = image.getImageKey();
+
+        boolean wasMainImage = image.getPosition() == 0;
+
+        productImageRepository.delete(image);
+        productImageRepository.flush();
+
+        if (wasMainImage) {
+            productImageRepository
+                    .findLowestPositionImage(productId)
+                    .ifPresent(nextImage -> {
+                        nextImage.setPosition(0);
+
+                        productImageRepository.flush();
+                    });
+        }
+
+        storageService.delete(imageKey);
+    }
+
+    @Transactional
+    public ProductImageResponse updateImagePosition(
+            Long productId,
+            Long imageId,
+            UpdateProductImageRequest request
+    ) {
+        ProductImage image = productImageRepository
+                .findByIdAndProductId(imageId, productId)
+                .orElseThrow(() ->
+                        new ResourceNotFoundException("Product image not found by id: " + imageId)
+                );
+
+        int currentPosition = image.getPosition();
+        int newPosition = request.getPosition();
+
+        if (currentPosition == newPosition) {
+            return toImageResponse(image);
+        }
+
+        Optional<ProductImage> occupiedPosition = productImageRepository.findAtPosition(productId, newPosition);
+
+        if (occupiedPosition.isEmpty()) {
+            image.setPosition(newPosition);
+
+            return toImageResponse(image);
+        }
+
+        ProductImage otherImage = occupiedPosition.get();
+
+        int temporaryPosition = productImageRepository.findMaxPosition(productId) + 1;
+
+        otherImage.setPosition(temporaryPosition);
+
+        productImageRepository.flush();
+
+        image.setPosition(newPosition);
+
+        productImageRepository.flush();
+
+        otherImage.setPosition(currentPosition);
+
+        productImageRepository.flush();
+
+        return toImageResponse(image);
+    }
+
+    @Transactional
+    public void deactivateProduct(Long productId) {
+        Product product = productRepository.findById(productId)
+                .orElseThrow(() ->
+                        new ResourceNotFoundException("Product not found by id: " + productId)
+                );
+
+        if (!product.isActive()) {
+            return;
+        }
+
+        product.setActive(false);
+    }
+
+    private ProductImageResponse toImageResponse(ProductImage image) {
+        return new ProductImageResponse(
+                image.getImageId(),
+                image.getImageKey(),
+                storageService.getPublicUrl(image.getImageKey()),
+                image.getPosition()
+        );
+    }
+
+    private void validateImage(MultipartFile file) {
+        if (file.isEmpty()) {
+            throw new InvalidOperationException("Product image must not be empty");
+        }
+
+        if (file.getSize() > MAX_IMAGE_SIZE) {
+            throw new InvalidOperationException("Product image must not exceed 5 MB");
+        }
+    }
+
+    private String resolveImageExtension(MultipartFile file) {
+        String contentType = file.getContentType();
+
+        if (contentType == null) {
+            throw new InvalidOperationException("Product image content type is missing");
+        }
+
+        return switch (contentType) {
+            case "image/jpeg" -> ".jpg";
+            case "image/png" -> ".png";
+            case "image/webp" -> ".webp";
+
+            default -> throw new InvalidOperationException("Product image must be JPEG, PNG or WEBP");
+        };
+    }
+
+    private String generateImageKey(Long productId, String extension) {
+        return "products/"
+                + productId
+                + "/"
+                + UUID.randomUUID()
+                + extension;
+    }
+
     private void updateTitle(Product product, UpdateProductRequest request) {
         if (request.getTitle() == null) {
             return;
@@ -281,13 +460,17 @@ public class ProductService {
     }
 
     private ProductListItemResponse toListItemResponse(Product product, String imageKey) {
+        String imageUrl = imageKey == null
+                ? null
+                : storageService.getPublicUrl(imageKey);
+
         return new ProductListItemResponse(
                 product.getProductId(),
                 product.getTitle(),
                 product.getSlug(),
                 product.getPrice(),
                 product.getStock() > 0,
-                imageKey
+                imageUrl
         );
     }
 

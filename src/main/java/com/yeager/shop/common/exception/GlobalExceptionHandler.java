@@ -4,6 +4,7 @@ import lombok.RequiredArgsConstructor;
 import org.springframework.context.MessageSource;
 import org.springframework.context.MessageSourceResolvable;
 import org.springframework.context.i18n.LocaleContextHolder;
+import org.springframework.dao.DataIntegrityViolationException;
 import org.springframework.http.HttpStatus;
 import org.springframework.http.ProblemDetail;
 import org.springframework.http.converter.HttpMessageNotReadableException;
@@ -127,11 +128,34 @@ public class GlobalExceptionHandler {
     public ProblemDetail handleInvalidOperation(
             InvalidOperationException exception
     ) {
-        ProblemDetail problem =
-                ProblemDetail.forStatus(HttpStatus.BAD_REQUEST);
+        ProblemDetail problem = ProblemDetail.forStatus(HttpStatus.BAD_REQUEST);
 
         problem.setTitle("Invalid operation");
         problem.setDetail(exception.getMessage());
+
+        return problem;
+    }
+
+    @ExceptionHandler(StorageException.class)
+    public ProblemDetail handleStorage(
+            StorageException exception
+    ) {
+        ProblemDetail problem = ProblemDetail.forStatus(HttpStatus.SERVICE_UNAVAILABLE);
+
+        problem.setTitle("Storage unavailable");
+        problem.setDetail("File storage is currently unavailable");
+
+        return problem;
+    }
+
+    @ExceptionHandler(DataIntegrityViolationException.class)
+    public ProblemDetail handleDataIntegrityViolation(
+            DataIntegrityViolationException exception
+    ) {
+        ProblemDetail problem = ProblemDetail.forStatus(HttpStatus.CONFLICT);
+
+        problem.setTitle("Data conflict");
+        problem.setDetail("The requested operation conflicts with existing data");
 
         return problem;
     }

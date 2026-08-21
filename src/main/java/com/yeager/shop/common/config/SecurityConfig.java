@@ -45,6 +45,7 @@ public class SecurityConfig {
                                 .requestMatchers(
                                         HttpMethod.POST,
                                         "/products",
+                                        "/products/**",
                                         "/categories"
                                 ).hasAnyRole("MANAGER", "ADMIN")
 

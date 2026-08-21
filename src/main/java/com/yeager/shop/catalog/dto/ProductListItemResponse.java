@@ -16,5 +16,5 @@ public class ProductListItemResponse {
     private BigDecimal price;
     private boolean inStock;
 
-    private String mainImageKey;
+    private String mainImageUrl;
 }

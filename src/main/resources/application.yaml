@@ -38,3 +38,11 @@ security:
   jwt:
     secret: ${JWT_SECRET}
     access-token-ttl: 15m
+
+storage:
+  endpoint: http://localhost:9000
+  public-url: http://localhost:9000
+  access-key: ${MINIO_ROOT_USER}
+  secret-key: ${MINIO_ROOT_PASSWORD}
+  region: us-east-1
+  bucket: shop
