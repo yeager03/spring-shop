@@ -1,5 +1,6 @@
 package com.yeager.shop.catalog.dto;
 
+import com.fasterxml.jackson.annotation.JsonIgnore;
 import jakarta.validation.constraints.Pattern;
 import jakarta.validation.constraints.Positive;
 import jakarta.validation.constraints.PositiveOrZero;
@@ -32,6 +33,8 @@ public class UpdateCategoryRequest {
 
     private Boolean active;
 
+    @JsonIgnore
+    @Setter(AccessLevel.NONE)
     private boolean parentIdProvided;
 
     public void setParentId(Long parentId) {

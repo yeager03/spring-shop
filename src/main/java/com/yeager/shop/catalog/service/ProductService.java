@@ -1,14 +1,20 @@
 package com.yeager.shop.catalog.service;
 
 import com.yeager.shop.catalog.dto.*;
+import com.yeager.shop.catalog.entity.Category;
 import com.yeager.shop.catalog.entity.Product;
+import com.yeager.shop.catalog.entity.ProductCategory;
+import com.yeager.shop.catalog.entity.ProductCategoryId;
 import com.yeager.shop.catalog.repository.CategoryRepository;
+import com.yeager.shop.catalog.repository.ProductCategoryRepository;
 import com.yeager.shop.catalog.repository.ProductImageRepository;
 import com.yeager.shop.catalog.repository.ProductRepository;
 import com.yeager.shop.catalog.repository.projection.ProductMainImageProjection;
 import com.yeager.shop.catalog.repository.specification.ProductSpecifications;
 import com.yeager.shop.common.dto.PageMeta;
 import com.yeager.shop.common.dto.PagedResponse;
+import com.yeager.shop.common.exception.InvalidOperationException;
+import com.yeager.shop.common.exception.ResourceAlreadyExistsException;
 import com.yeager.shop.common.exception.ResourceNotFoundException;
 import lombok.RequiredArgsConstructor;
 import org.springframework.data.domain.Page;
@@ -29,6 +35,7 @@ public class ProductService {
     private final ProductRepository productRepository;
     private final ProductImageRepository productImageRepository;
     private final CategoryRepository categoryRepository;
+    private final ProductCategoryRepository productCategoryRepository;
 
     @Transactional(readOnly = true)
     public PagedResponse<ProductListItemResponse> getProducts(ProductListQuery query) {
@@ -125,6 +132,146 @@ public class ProductService {
         );
     }
 
+    @Transactional
+    public ProductManagementResponse createProduct(CreateProductRequest request) {
+        String slug = normalizeSlug(request.getSlug());
+
+        if (productRepository.existsBySlug(slug)) {
+            throw new ResourceAlreadyExistsException("Product with this slug already exists");
+        }
+
+        Product product = new Product();
+
+        product.setTitle(request.getTitle().trim());
+        product.setSlug(slug);
+        product.setDescription(normalizeDescription(request.getDescription()));
+        product.setPrice(request.getPrice());
+        product.setStock(request.getStock());
+
+        Product savedProduct = productRepository.save(product);
+
+        return toManagementResponse(savedProduct);
+    }
+
+    @Transactional
+    public ProductManagementResponse updateProduct(Long productId, UpdateProductRequest request) {
+        Product product = productRepository.findById(productId)
+                .orElseThrow(() ->
+                        new ResourceNotFoundException("Product not found by id: " + productId)
+                );
+
+        updateTitle(product, request);
+        updateSlug(product, request);
+        updateDescription(product, request);
+        updatePrice(product, request);
+        updateStock(product, request);
+        updateActive(product, request);
+
+        return toManagementResponse(product);
+    }
+
+    @Transactional
+    public void addCategory(Long productId, Long categoryId) {
+        Product product = productRepository.findById(productId)
+                .orElseThrow(() ->
+                        new ResourceNotFoundException("Product not found by id: " + productId)
+                );
+
+        Category category = categoryRepository.findById(categoryId)
+                .filter(Category::isActive)
+                .orElseThrow(() ->
+                        new ResourceNotFoundException("Active category not found by id: " + categoryId)
+                );
+
+        ProductCategoryId id = new ProductCategoryId(productId, categoryId);
+
+        if (productCategoryRepository.existsById(id)) {
+            return;
+        }
+
+        ProductCategory productCategory = new ProductCategory();
+
+        productCategory.setId(id);
+        productCategory.setProduct(product);
+        productCategory.setCategory(category);
+
+        productCategoryRepository.save(productCategory);
+    }
+
+    @Transactional
+    public void removeCategory(Long productId, Long categoryId) {
+        if (!productRepository.existsById(productId)) {
+            throw new ResourceNotFoundException("Product not found by id: " + productId);
+        }
+
+        if (!categoryRepository.existsById(categoryId)) {
+            throw new ResourceNotFoundException("Category not found by id: " + categoryId);
+        }
+
+        productCategoryRepository.deleteLink(productId, categoryId);
+    }
+
+    private void updateTitle(Product product, UpdateProductRequest request) {
+        if (request.getTitle() == null) {
+            return;
+        }
+
+        String title = request.getTitle().trim();
+
+        if (title.isEmpty()) {
+            throw new InvalidOperationException("Product title must not be blank");
+        }
+
+        product.setTitle(title);
+    }
+
+    private void updateSlug(Product product, UpdateProductRequest request) {
+        if (request.getSlug() == null) {
+            return;
+        }
+
+        String slug = normalizeSlug(request.getSlug());
+
+        boolean alreadyExists = productRepository.existsSlugConflict(
+                slug,
+                product.getProductId()
+        );
+
+        if (alreadyExists) {
+            throw new ResourceAlreadyExistsException("Product with this slug already exists");
+        }
+
+        product.setSlug(slug);
+    }
+
+    private void updateDescription(Product product, UpdateProductRequest request) {
+        if (!request.isDescriptionProvided()) {
+            return;
+        }
+
+        product.setDescription(
+                normalizeDescription(request.getDescription())
+        );
+    }
+
+    private void updatePrice(Product product, UpdateProductRequest request) {
+        if (request.getPrice() != null) {
+            product.setPrice(request.getPrice());
+        }
+    }
+
+    private void updateStock(Product product, UpdateProductRequest request) {
+        if (request.getStock() != null) {
+            product.setStock(request.getStock());
+        }
+    }
+
+    private void updateActive(Product product, UpdateProductRequest request) {
+        if (request.getActive() != null) {
+            product.setActive(request.getActive());
+        }
+    }
+
     private Pageable createPageable(ProductListQuery query) {
         Sort.Direction direction = query.getOrder() == SortDirection.ASC ? Sort.Direction.ASC : Sort.Direction.DESC;
 
@@ -159,5 +306,31 @@ public class ProductService {
         filters.put("order", query.getOrder().name().toLowerCase(Locale.ROOT));
 
         return filters;
+    }
+
+    private String normalizeSlug(String slug) {
+        return slug
+                .trim()
+                .toLowerCase(Locale.ROOT);
+    }
+
+    private String normalizeDescription(String description) {
+        if (description == null || description.isBlank()) {
+            return null;
+        }
+
+        return description.trim();
+    }
+
+    private ProductManagementResponse toManagementResponse(Product product) {
+        return new ProductManagementResponse(
+                product.getProductId(),
+                product.getTitle(),
+                product.getSlug(),
+                product.getDescription(),
+                product.getPrice(),
+                product.getStock(),
+                product.isActive()
+        );
     }
 }

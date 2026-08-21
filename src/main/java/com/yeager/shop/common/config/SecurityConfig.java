@@ -49,6 +49,11 @@ public class SecurityConfig {
                                 ).hasAnyRole("MANAGER", "ADMIN")
 
                                 .requestMatchers(
+                                        HttpMethod.PUT,
+                                        "/products/**"
+                                ).hasAnyRole("MANAGER", "ADMIN")
+
+                                .requestMatchers(
                                         HttpMethod.PATCH,
                                         "/products/**",
                                         "/categories/**"
