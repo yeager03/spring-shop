@@ -33,14 +33,14 @@ import java.util.stream.Collectors;
 @Service
 @RequiredArgsConstructor
 public class ProductService {
+    private static final long MAX_IMAGE_SIZE = 5 * 1024 * 1024;
+
     private final ProductRepository productRepository;
     private final ProductImageRepository productImageRepository;
     private final CategoryRepository categoryRepository;
     private final ProductCategoryRepository productCategoryRepository;
 
     private final StorageService storageService;
-
-    private static final long MAX_IMAGE_SIZE = 5 * 1024 * 1024;
 
     @Transactional(readOnly = true)
     public PagedResponse<ProductListItemResponse> getProducts(ProductListQuery query) {

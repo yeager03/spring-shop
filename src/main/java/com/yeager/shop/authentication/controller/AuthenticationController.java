@@ -1,6 +1,7 @@
 package com.yeager.shop.authentication.controller;
 
 import com.yeager.shop.authentication.dto.*;
+import com.yeager.shop.authentication.security.AuthenticatedUserPrincipal;
 import com.yeager.shop.authentication.security.RefreshTokenCookieService;
 import com.yeager.shop.authentication.service.AuthenticationService;
 import jakarta.validation.Valid;
@@ -9,6 +10,7 @@ import org.springframework.http.HttpHeaders;
 import org.springframework.http.HttpStatus;
 import org.springframework.http.ResponseCookie;
 import org.springframework.http.ResponseEntity;
+import org.springframework.security.core.annotation.AuthenticationPrincipal;
 import org.springframework.web.bind.annotation.*;
 
 @RestController
@@ -70,6 +72,25 @@ public class AuthenticationController {
             String refreshToken
     ) {
         authenticationService.signOut(refreshToken);
+
+        ResponseCookie deletedCookie = refreshTokenCookieService.delete();
+
+        return ResponseEntity
+                .noContent()
+                .header(HttpHeaders.SET_COOKIE, deletedCookie.toString())
+                .build();
+    }
+
+    @PatchMapping("/password")
+    public ResponseEntity<Void> changePassword(
+            @AuthenticationPrincipal
+            AuthenticatedUserPrincipal principal,
+
+            @Valid
+            @RequestBody
+            ChangePasswordRequest request
+    ) {
+        authenticationService.changePassword(principal.getUserId(), request);
 
         ResponseCookie deletedCookie = refreshTokenCookieService.delete();
 

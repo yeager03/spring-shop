@@ -8,9 +8,7 @@ import com.yeager.shop.authentication.security.GeneratedRefreshToken;
 import com.yeager.shop.authentication.security.JwtProperties;
 import com.yeager.shop.authentication.security.JwtService;
 import com.yeager.shop.authentication.security.RefreshTokenService;
-import com.yeager.shop.common.exception.InvalidCredentialsException;
-import com.yeager.shop.common.exception.RefreshTokenReuseException;
-import com.yeager.shop.common.exception.ResourceAlreadyExistsException;
+import com.yeager.shop.common.exception.*;
 import com.yeager.shop.user.entity.User;
 import com.yeager.shop.user.repository.UserRepository;
 import lombok.RequiredArgsConstructor;
@@ -215,6 +213,39 @@ public class AuthenticationService {
         if (session.getStatus() == SessionStatus.ACTIVE) {
             session.setStatus(SessionStatus.REVOKED);
         }
+    }
+
+    @Transactional
+    public void changePassword(Long userId, ChangePasswordRequest request) {
+        User user = userRepository
+                .findForUpdateById(userId)
+                .orElseThrow(() ->
+                        new ResourceNotFoundException("User not found by id: " + userId)
+                );
+
+        if (!passwordEncoder.matches(
+                request.getCurrentPassword(),
+                user.getPasswordHash()
+        )) {
+            throw new InvalidOperationException("Current password is incorrect");
+        }
+
+        if (passwordEncoder.matches(
+                request.getNewPassword(),
+                user.getPasswordHash()
+        )) {
+            throw new InvalidOperationException("New password must be different from current password");
+        }
+
+        user.setPasswordHash(passwordEncoder.encode(request.getNewPassword()));
+
+        user.setAuthenticationVersion(user.getAuthenticationVersion() + 1);
+
+        sessionRepository.revokeActiveByUserId(
+                userId,
+                SessionStatus.ACTIVE,
+                SessionStatus.REVOKED
+        );
     }
 
     private void handleRefreshTokenReuse(Session reusedSession) {

@@ -1,7 +1,9 @@
 package com.yeager.shop.user.repository;
 
 import com.yeager.shop.user.entity.User;
+import jakarta.persistence.LockModeType;
 import org.springframework.data.jpa.repository.JpaRepository;
+import org.springframework.data.jpa.repository.Lock;
 import org.springframework.data.jpa.repository.Query;
 import org.springframework.data.repository.query.Param;
 import org.springframework.stereotype.Repository;
@@ -35,6 +37,16 @@ public interface UserRepository extends JpaRepository<User, Long> {
               AND u.isActive = true
             """)
     Optional<Integer> findActiveAuthenticationVersion(
+            @Param("userId") Long userId
+    );
+
+    @Lock(LockModeType.PESSIMISTIC_WRITE)
+    @Query("""
+            SELECT u
+            FROM User u
+            WHERE u.userId = :userId
+            """)
+    Optional<User> findForUpdateById(
             @Param("userId") Long userId
     );
 }

@@ -1,9 +1,11 @@
 package com.yeager.shop.authentication.repository;
 
 import com.yeager.shop.authentication.entity.Session;
+import com.yeager.shop.authentication.entity.SessionStatus;
 import jakarta.persistence.LockModeType;
 import org.springframework.data.jpa.repository.JpaRepository;
 import org.springframework.data.jpa.repository.Lock;
+import org.springframework.data.jpa.repository.Modifying;
 import org.springframework.data.jpa.repository.Query;
 import org.springframework.data.repository.query.Param;
 import org.springframework.stereotype.Repository;
@@ -30,5 +32,21 @@ public interface SessionRepository extends JpaRepository<Session, Long> {
             """)
     Optional<Session> findForUpdateById(
             @Param("sessionId") Long sessionId
+    );
+
+    @Modifying(
+            flushAutomatically = true,
+            clearAutomatically = true
+    )
+    @Query("""
+            UPDATE Session s
+            SET s.status = :revokedStatus
+            WHERE s.user.userId = :userId
+              AND s.status = :activeStatus
+            """)
+    int revokeActiveByUserId(
+            @Param("userId") Long userId,
+            @Param("activeStatus") SessionStatus activeStatus,
+            @Param("revokedStatus") SessionStatus revokedStatus
     );
 }
