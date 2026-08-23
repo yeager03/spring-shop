@@ -27,4 +27,14 @@ public interface UserRepository extends JpaRepository<User, Long> {
     boolean existsByEmail(
             @Param("email") String email
     );
+
+    @Query("""
+            SELECT u.authenticationVersion
+            FROM User u
+            WHERE u.userId = :userId
+              AND u.isActive = true
+            """)
+    Optional<Integer> findActiveAuthenticationVersion(
+            @Param("userId") Long userId
+    );
 }

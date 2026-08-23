@@ -5,8 +5,10 @@ import lombok.Getter;
 
 @Getter
 @AllArgsConstructor
-public class SignInResponse {
+public class AccessTokenResponse  {
     private String accessToken;
+
     private String tokenType;
+
     private long expiresIn;
 }

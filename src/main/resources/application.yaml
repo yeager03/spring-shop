@@ -38,6 +38,13 @@ security:
   jwt:
     secret: ${JWT_SECRET}
     access-token-ttl: 15m
+    refresh-token-ttl: 30d
+
+  refresh-cookie:
+    name: refresh_token
+    secure: false
+    same-site: Strict
+    path: /api/v1/authentication
 
 storage:
   endpoint: http://localhost:9000

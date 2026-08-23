@@ -69,7 +69,9 @@ public class SecurityConfig {
                                 .requestMatchers(
                                         HttpMethod.POST,
                                         "/authentication/sign-up",
-                                        "/authentication/sign-in"
+                                        "/authentication/sign-in",
+                                        "/authentication/refresh-tokens",
+                                        "/authentication/sign-out"
                                 ).permitAll()
 
                                 .anyRequest().authenticated()

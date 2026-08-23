@@ -159,4 +159,16 @@ public class GlobalExceptionHandler {
 
         return problem;
     }
+
+    @ExceptionHandler(RefreshTokenReuseException.class)
+    public ProblemDetail handleRefreshTokenReuse(
+            RefreshTokenReuseException exception
+    ) {
+        ProblemDetail problem = ProblemDetail.forStatus(HttpStatus.UNAUTHORIZED);
+
+        problem.setTitle("Authentication failed");
+        problem.setDetail("Invalid authentication credentials");
+
+        return problem;
+    }
 }

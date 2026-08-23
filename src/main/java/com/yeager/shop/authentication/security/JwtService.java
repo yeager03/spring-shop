@@ -26,6 +26,7 @@ public class JwtService {
                 .issuedAt(now)
                 .expiresAt(now.plus(jwtProperties.getAccessTokenTtl()))
                 .claim("role", user.getRole().name())
+                .claim("authentication_version", user.getAuthenticationVersion())
                 .build();
 
         JwsHeader header = JwsHeader

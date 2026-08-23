@@ -13,4 +13,5 @@ public class JwtProperties {
     private String secret;
 
     private Duration accessTokenTtl;
+    private Duration refreshTokenTtl;
 }

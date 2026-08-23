@@ -1,13 +1,16 @@
 package com.yeager.shop.authentication.service;
 
-import com.yeager.shop.authentication.dto.SignInRequest;
-import com.yeager.shop.authentication.dto.SignInResponse;
+import com.yeager.shop.authentication.dto.*;
+import com.yeager.shop.authentication.entity.Session;
+import com.yeager.shop.authentication.entity.SessionStatus;
+import com.yeager.shop.authentication.repository.SessionRepository;
+import com.yeager.shop.authentication.security.GeneratedRefreshToken;
 import com.yeager.shop.authentication.security.JwtProperties;
 import com.yeager.shop.authentication.security.JwtService;
+import com.yeager.shop.authentication.security.RefreshTokenService;
 import com.yeager.shop.common.exception.InvalidCredentialsException;
+import com.yeager.shop.common.exception.RefreshTokenReuseException;
 import com.yeager.shop.common.exception.ResourceAlreadyExistsException;
-import com.yeager.shop.authentication.dto.SignUpRequest;
-import com.yeager.shop.authentication.dto.SignUpResponse;
 import com.yeager.shop.user.entity.User;
 import com.yeager.shop.user.repository.UserRepository;
 import lombok.RequiredArgsConstructor;
@@ -15,13 +18,20 @@ import org.springframework.security.crypto.password.PasswordEncoder;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
 
+import java.time.Instant;
+import java.util.HashSet;
 import java.util.Locale;
+import java.util.Optional;
+import java.util.Set;
 
 @Service
 @RequiredArgsConstructor
 public class AuthenticationService {
     private final UserRepository userRepository;
-    
+    private final SessionRepository sessionRepository;
+
+    private final RefreshTokenService refreshTokenService;
+
     private final PasswordEncoder passwordEncoder;
 
     private final JwtService jwtService;
@@ -52,8 +62,8 @@ public class AuthenticationService {
         );
     }
 
-    @Transactional(readOnly = true)
-    public SignInResponse signIn(SignInRequest request) {
+    @Transactional
+    public AuthenticationResult signIn(SignInRequest request) {
         String email = normalizeEmail(request.getEmail());
 
         User user = userRepository.findByEmail(email)
@@ -68,12 +78,173 @@ public class AuthenticationService {
         }
 
         String accessToken = jwtService.generateAccessToken(user);
+        GeneratedRefreshToken refreshToken = refreshTokenService.generate();
 
-        return new SignInResponse(
+        Instant now = Instant.now();
+
+        Session session = new Session();
+
+        session.setUser(user);
+        session.setJti(refreshToken.getJti());
+        session.setTokenHash(refreshToken.getTokenHash());
+        session.setStatus(SessionStatus.ACTIVE);
+        session.setIssuedAt(now);
+        session.setExpiresAt(now.plus(jwtProperties.getRefreshTokenTtl()));
+
+        sessionRepository.save(session);
+
+        AccessTokenResponse response = new AccessTokenResponse(
                 accessToken,
                 "Bearer",
-                jwtProperties.getAccessTokenTtl().toSeconds()
+                jwtProperties
+                        .getAccessTokenTtl()
+                        .toSeconds()
         );
+
+        return new AuthenticationResult(
+                response,
+                refreshToken.getToken()
+        );
+    }
+
+    @Transactional(
+            noRollbackFor = RefreshTokenReuseException.class
+    )
+    public AuthenticationResult refreshTokens(String rawRefreshToken) {
+        String jti = refreshTokenService.extractJti(rawRefreshToken);
+
+        Session currentSession = sessionRepository
+                .findForUpdateByJti(jti)
+                .orElseThrow(InvalidCredentialsException::new);
+
+        if (!refreshTokenService.matches(
+                rawRefreshToken,
+                currentSession.getTokenHash()
+        )) {
+            throw new InvalidCredentialsException();
+        }
+
+        if (currentSession.getStatus() == SessionStatus.REUSED) {
+            throw new RefreshTokenReuseException();
+        }
+
+        if (currentSession.getStatus() == SessionStatus.REVOKED) {
+
+            if (currentSession.getReplacedBy() != null) {
+                handleRefreshTokenReuse(currentSession);
+
+                throw new RefreshTokenReuseException();
+            }
+
+            throw new InvalidCredentialsException();
+        }
+
+        Instant now = Instant.now();
+
+        if (!currentSession.getExpiresAt().isAfter(now)) {
+            throw new InvalidCredentialsException();
+        }
+
+        User user = currentSession.getUser();
+
+        if (!user.isActive()) {
+            throw new InvalidCredentialsException();
+        }
+
+        GeneratedRefreshToken newRefreshToken = refreshTokenService.generate();
+
+        Session newSession = new Session();
+
+        newSession.setUser(user);
+        newSession.setJti(newRefreshToken.getJti());
+        newSession.setTokenHash(newRefreshToken.getTokenHash());
+        newSession.setStatus(SessionStatus.ACTIVE);
+        newSession.setIssuedAt(now);
+        newSession.setExpiresAt(now.plus(jwtProperties.getRefreshTokenTtl()));
+
+        sessionRepository.save(newSession);
+
+        currentSession.setStatus(SessionStatus.REVOKED);
+        currentSession.setReplacedBy(newSession);
+
+        String accessToken = jwtService.generateAccessToken(user);
+
+        AccessTokenResponse response = new AccessTokenResponse(
+                accessToken,
+                "Bearer",
+                jwtProperties
+                        .getAccessTokenTtl()
+                        .toSeconds()
+        );
+
+        return new AuthenticationResult(
+                response,
+                newRefreshToken.getToken()
+        );
+    }
+
+    @Transactional
+    public void signOut(String rawRefreshToken) {
+        if (rawRefreshToken == null || rawRefreshToken.isBlank()) {
+            return;
+        }
+
+        String jti;
+
+        try {
+            jti = refreshTokenService.extractJti(rawRefreshToken);
+        } catch (InvalidCredentialsException exception) {
+            return;
+        }
+
+        Optional<Session> optionalSession = sessionRepository.findForUpdateByJti(jti);
+
+        if (optionalSession.isEmpty()) {
+            return;
+        }
+
+        Session session = optionalSession.get();
+
+        if (!refreshTokenService.matches(
+                rawRefreshToken,
+                session.getTokenHash()
+        )) {
+            return;
+        }
+
+        if (session.getStatus() == SessionStatus.ACTIVE) {
+            session.setStatus(SessionStatus.REVOKED);
+        }
+    }
+
+    private void handleRefreshTokenReuse(Session reusedSession) {
+        reusedSession.setStatus(SessionStatus.REUSED);
+
+        Session nextSession = reusedSession.getReplacedBy();
+
+        Set<Long> visitedSessionIds = new HashSet<>();
+
+        visitedSessionIds.add(reusedSession.getSessionId());
+
+        while (nextSession != null) {
+            Long sessionId = nextSession.getSessionId();
+
+            if (!visitedSessionIds.add(sessionId)) {
+                throw new IllegalStateException("Session replacement cycle detected");
+            }
+
+            Session lockedSession = sessionRepository
+                    .findForUpdateById(sessionId)
+                    .orElseThrow(() ->
+                            new IllegalStateException("Replacement session not found: " + sessionId)
+                    );
+
+            if (lockedSession.getStatus() == SessionStatus.ACTIVE) {
+                lockedSession.setStatus(SessionStatus.REVOKED);
+            }
+
+            nextSession = lockedSession.getReplacedBy();
+        }
     }
 
     private String normalizeEmail(String email) {
