@@ -1,12 +1,13 @@
 package com.yeager.shop.order.repository;
 
 import com.yeager.shop.order.entity.Order;
+import org.springframework.data.domain.Page;
+import org.springframework.data.domain.Pageable;
 import org.springframework.data.jpa.repository.JpaRepository;
 import org.springframework.data.jpa.repository.Query;
 import org.springframework.data.repository.query.Param;
 import org.springframework.stereotype.Repository;
 
-import java.util.List;
 import java.util.Optional;
 
 @Repository
@@ -15,10 +16,10 @@ public interface OrderRepository extends JpaRepository<Order, Long> {
             SELECT o
             FROM Order o
             WHERE o.user.userId = :userId
-            ORDER BY o.createdAt DESC
             """)
-    List<Order> findByUserId(
-            @Param("userId") Long userId
+    Page<Order> findPageByUserId(
+            @Param("userId") Long userId,
+            Pageable pageable
     );
 
     @Query("""
@@ -28,6 +29,19 @@ public interface OrderRepository extends JpaRepository<Order, Long> {
               AND o.user.userId = :userId
             """)
     Optional<Order> findByIdAndUserId(
+            @Param("orderId") Long orderId,
+            @Param("userId") Long userId
+    );
+
+    @Query("""
+            SELECT DISTINCT o
+            FROM Order o
+                     LEFT JOIN FETCH o.items i
+                     LEFT JOIN FETCH i.product
+            WHERE o.orderId = :orderId
+              AND o.user.userId = :userId
+            """)
+    Optional<Order> findDetailsByIdAndUserId(
             @Param("orderId") Long orderId,
             @Param("userId") Long userId
     );

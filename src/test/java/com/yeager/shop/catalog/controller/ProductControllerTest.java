@@ -73,6 +73,8 @@ class ProductControllerTest {
                 true,
                 List.of(
                         new ProductImageResponse(
+                                1L,
+                                "pizza-main",
                                 "pizza-main.jpg",
                                 0
                         )
@@ -97,7 +99,7 @@ class ProductControllerTest {
                 .andExpect(jsonPath("$.description").value("Very tasty pizza"))
                 .andExpect(jsonPath("$.inStock").value(true))
                 .andExpect(jsonPath("$.images.length()").value(1))
-                .andExpect(jsonPath("$.images[0].imageKey").value("pizza-main.jpg"))
+                .andExpect(jsonPath("$.images[0].imageUrl").value("pizza-main.jpg"))
                 .andExpect(jsonPath("$.images[0].position").value(0))
                 .andExpect(jsonPath("$.categories.length()").value(1))
                 .andExpect(jsonPath("$.categories[0].categoryId").value(5))

@@ -37,3 +37,6 @@ build/
 .env.*.local
 *.keystore
 *.jks
+
+# Claude Code personal settings
+.claude/settings.local.json

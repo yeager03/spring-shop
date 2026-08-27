@@ -5,11 +5,13 @@ import com.yeager.shop.catalog.entity.Category;
 import com.yeager.shop.catalog.entity.Product;
 import com.yeager.shop.catalog.entity.ProductImage;
 import com.yeager.shop.catalog.repository.CategoryRepository;
+import com.yeager.shop.catalog.repository.ProductCategoryRepository;
 import com.yeager.shop.catalog.repository.ProductImageRepository;
 import com.yeager.shop.catalog.repository.ProductRepository;
 import com.yeager.shop.catalog.repository.projection.ProductMainImageProjection;
 import com.yeager.shop.common.dto.PagedResponse;
 import com.yeager.shop.common.exception.ResourceNotFoundException;
+import com.yeager.shop.common.storage.StorageService;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.extension.ExtendWith;
 import org.mockito.ArgumentCaptor;
@@ -36,6 +38,12 @@ class ProductServiceTest {
 
     @Mock
     private CategoryRepository categoryRepository;
+
+    @Mock
+    private ProductCategoryRepository productCategoryRepository;
+
+    @Mock
+    private StorageService storageService;
 
     @InjectMocks
     private ProductService productService;
@@ -116,6 +124,12 @@ class ProductServiceTest {
         when(productImageRepository.findMainImages(List.of(1L, 2L)))
                 .thenReturn(List.of(image1, image2));
 
+        when(storageService.getPublicUrl("pizza.jpg"))
+                .thenReturn("https://cdn.example.com/pizza.jpg");
+
+        when(storageService.getPublicUrl("burger.jpg"))
+                .thenReturn("https://cdn.example.com/burger.jpg");
+
         PagedResponse<ProductListItemResponse> result =
                 productService.getProducts(query);
 
@@ -126,12 +140,12 @@ class ProductServiceTest {
         assertEquals("pizza", result.getItems().getFirst().getSlug());
         assertEquals(new BigDecimal("2500.00"), result.getItems().getFirst().getPrice());
         assertTrue(result.getItems().getFirst().isInStock());
-        assertEquals("pizza.jpg", result.getItems().getFirst().getMainImageKey());
+        assertEquals("https://cdn.example.com/pizza.jpg", result.getItems().getFirst().getMainImageUrl());
 
         assertEquals(2L, result.getItems().get(1).getProductId());
         assertEquals("Burger", result.getItems().get(1).getTitle());
         assertFalse(result.getItems().get(1).isInStock());
-        assertEquals("burger.jpg", result.getItems().get(1).getMainImageKey());
+        assertEquals("https://cdn.example.com/burger.jpg", result.getItems().get(1).getMainImageUrl());
 
         assertEquals(2, result.getPageMeta().getTotalElements());
         assertEquals(1, result.getPageMeta().getTotalPages());
@@ -139,6 +153,9 @@ class ProductServiceTest {
 
         verify(productImageRepository)
                 .findMainImages(List.of(1L, 2L));
+
+        verify(storageService).getPublicUrl("pizza.jpg");
+        verify(storageService).getPublicUrl("burger.jpg");
     }
 
     @Test
@@ -221,8 +238,12 @@ class ProductServiceTest {
         when(productImageRepository.findAllByProductId(1L))
                 .thenReturn(List.of(image));
 
+        when(image.getImageId()).thenReturn(10L);
         when(image.getImageKey()).thenReturn("pizza.jpg");
         when(image.getPosition()).thenReturn(0);
+
+        when(storageService.getPublicUrl("pizza.jpg"))
+                .thenReturn("https://cdn.example.com/pizza.jpg");
 
         when(categoryRepository.findActiveByProductId(1L))
                 .thenReturn(List.of(category));
@@ -241,9 +262,20 @@ class ProductServiceTest {
         assertTrue(result.isInStock());
 
         assertEquals(1, result.getImages().size());
-        assertEquals("pizza.jpg", result.getImages().getFirst().getImageKey());
+
+        ProductImageResponse imageResponse = result.getImages().getFirst();
+
+        assertEquals(10L, imageResponse.getImageId());
+        assertEquals("pizza.jpg", imageResponse.getImageKey());
+        assertEquals("https://cdn.example.com/pizza.jpg", imageResponse.getImageUrl());
+        assertEquals(0, imageResponse.getPosition());
 
         assertEquals(1, result.getCategories().size());
-        assertEquals("Food", result.getCategories().getFirst().getName());
+        assertEquals(
+                "Food",
+                result.getCategories().getFirst().getName()
+        );
+
+        verify(storageService).getPublicUrl("pizza.jpg");
     }
 }
