@@ -8,14 +8,20 @@ import org.springframework.dao.DataIntegrityViolationException;
 import org.springframework.http.HttpStatus;
 import org.springframework.http.ProblemDetail;
 import org.springframework.http.converter.HttpMessageNotReadableException;
+import org.springframework.validation.FieldError;
 import org.springframework.validation.method.ParameterValidationResult;
 import org.springframework.web.bind.MethodArgumentNotValidException;
 import org.springframework.web.bind.annotation.ExceptionHandler;
 import org.springframework.web.bind.annotation.RestControllerAdvice;
 import org.springframework.web.method.annotation.HandlerMethodValidationException;
+import tools.jackson.core.JacksonException;
+import tools.jackson.databind.exc.InvalidFormatException;
 
+import java.beans.Introspector;
 import java.util.ArrayList;
+import java.util.Arrays;
 import java.util.List;
+import java.util.stream.Collectors;
 
 @RestControllerAdvice
 @RequiredArgsConstructor
@@ -60,8 +66,12 @@ public class GlobalExceptionHandler {
             }
 
             for (MessageSourceResolvable error : result.getResolvableErrors()) {
+                String field = error instanceof FieldError fieldError
+                        ? fieldError.getField()
+                        : parameterName;
+
                 errors.add(new FieldViolation(
-                        parameterName,
+                        field,
                         messageSource.getMessage(error, LocaleContextHolder.getLocale())
                 ));
             }
@@ -80,10 +90,59 @@ public class GlobalExceptionHandler {
     public ProblemDetail handleUnreadableBody(
             HttpMessageNotReadableException exception
     ) {
+        if (exception.getCause() instanceof InvalidFormatException invalidFormat
+                && invalidFormat.getTargetType() != null
+                && invalidFormat.getTargetType().isEnum()
+                && !invalidFormat.getPath().isEmpty()) {
+
+            return handleInvalidEnumBody(invalidFormat);
+        }
+
         ProblemDetail problem = ProblemDetail.forStatus(HttpStatus.BAD_REQUEST);
 
         problem.setTitle("Invalid request body");
         problem.setDetail("Request body could not be read");
+
+        return problem;
+    }
+
+    private ProblemDetail handleInvalidEnumBody(InvalidFormatException exception) {
+        List<JacksonException.Reference> path = exception.getPath();
+        JacksonException.Reference last = path.get(path.size() - 1);
+
+        String field = last.getPropertyName() != null
+                ? last.getPropertyName()
+                : "parameter";
+
+        String allowedValues = Arrays
+                .stream(exception.getTargetType().getEnumConstants())
+                .map(Object::toString)
+                .collect(Collectors.joining(", "));
+
+        String defaultMessage = exception.getTargetType().getSimpleName()
+                + " must be one of: " + allowedValues;
+
+        String message = defaultMessage;
+        Object from = last.from();
+
+        if (from != null) {
+            String code = "typeMismatch."
+                    + Introspector.decapitalize(from.getClass().getSimpleName())
+                    + "." + field;
+
+            message = messageSource.getMessage(
+                    code,
+                    null,
+                    defaultMessage,
+                    LocaleContextHolder.getLocale()
+            );
+        }
+
+        ProblemDetail problem = ProblemDetail.forStatus(HttpStatus.BAD_REQUEST);
+
+        problem.setTitle("Validation failed");
+        problem.setDetail("One or more request fields are invalid");
+        problem.setProperty("errors", List.of(new FieldViolation(field, message)));
 
         return problem;
     }

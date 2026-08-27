@@ -67,6 +67,11 @@ public class SecurityConfig {
                                 ).hasAnyRole("MANAGER", "ADMIN")
 
                                 .requestMatchers(
+                                        "/management/orders",
+                                        "/management/orders/**"
+                                ).hasAnyRole("MANAGER", "ADMIN")
+
+                                .requestMatchers(
                                         HttpMethod.POST,
                                         "/authentication/sign-up",
                                         "/authentication/sign-in",

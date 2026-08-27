@@ -1,20 +1,16 @@
 package com.yeager.shop.order.service;
 
-import com.yeager.shop.cart.entity.Cart;
-import com.yeager.shop.cart.entity.CartItem;
-import com.yeager.shop.cart.repository.CartItemRepository;
-import com.yeager.shop.cart.repository.CartRepository;
 import com.yeager.shop.catalog.entity.Product;
 import com.yeager.shop.catalog.repository.ProductRepository;
 import com.yeager.shop.common.dto.PageMeta;
 import com.yeager.shop.common.dto.PagedResponse;
 import com.yeager.shop.common.exception.InvalidOperationException;
 import com.yeager.shop.common.exception.ResourceNotFoundException;
-import com.yeager.shop.order.dto.CreateOrderRequest;
-import com.yeager.shop.order.dto.OrderDetailsResponse;
+import com.yeager.shop.order.dto.ManagedOrderDetailsResponse;
+import com.yeager.shop.order.dto.ManagedOrderResponse;
 import com.yeager.shop.order.dto.OrderItemResponse;
-import com.yeager.shop.order.dto.OrderListQuery;
-import com.yeager.shop.order.dto.OrderResponse;
+import com.yeager.shop.order.dto.OrderManagementListQuery;
+import com.yeager.shop.order.dto.UpdateOrderStatusRequest;
 import com.yeager.shop.order.entity.Order;
 import com.yeager.shop.order.entity.OrderItem;
 import com.yeager.shop.order.entity.OrderStatus;
@@ -22,7 +18,6 @@ import com.yeager.shop.order.repository.OrderItemRepository;
 import com.yeager.shop.order.repository.OrderRepository;
 import com.yeager.shop.order.repository.projection.OrderItemsSummaryProjection;
 import com.yeager.shop.user.entity.User;
-import com.yeager.shop.user.repository.UserRepository;
 import lombok.RequiredArgsConstructor;
 import org.springframework.data.domain.Page;
 import org.springframework.data.domain.PageRequest;
@@ -36,110 +31,39 @@ import java.util.LinkedHashMap;
 import java.util.List;
 import java.util.Map;
 import java.util.Objects;
+import java.util.Set;
 import java.util.function.Function;
 import java.util.stream.Collectors;
 
 @Service
 @RequiredArgsConstructor
-public class OrderService {
+public class OrderManagementService {
+    private static final Map<OrderStatus, Set<OrderStatus>> ALLOWED_TRANSITIONS = Map.of(
+            OrderStatus.CREATED, Set.of(OrderStatus.PAID, OrderStatus.CANCELLED),
+            OrderStatus.PAID, Set.of(OrderStatus.PROCESSING, OrderStatus.CANCELLED),
+            OrderStatus.PROCESSING, Set.of(OrderStatus.SHIPPED, OrderStatus.CANCELLED),
+            OrderStatus.SHIPPED, Set.of(OrderStatus.DELIVERED),
+            OrderStatus.DELIVERED, Set.of(),
+            OrderStatus.CANCELLED, Set.of()
+    );
+
     private final OrderRepository orderRepository;
     private final OrderItemRepository orderItemRepository;
-    private final CartRepository cartRepository;
-    private final CartItemRepository cartItemRepository;
     private final ProductRepository productRepository;
-    private final UserRepository userRepository;
-
-    @Transactional
-    public OrderDetailsResponse checkout(Long userId, CreateOrderRequest request) {
-        User user = userRepository.findForUpdateById(userId)
-                .orElseThrow(() ->
-                        new ResourceNotFoundException("User not found by id: " + userId)
-                );
-
-        Cart cart = cartRepository.findByUserId(userId)
-                .orElseThrow(() ->
-                        new InvalidOperationException("Cart is empty")
-                );
-
-        List<CartItem> cartItems = cartItemRepository.findAllByCartId(cart.getCartId());
-
-        if (cartItems.isEmpty()) {
-            throw new InvalidOperationException("Cart is empty");
-        }
-
-        Map<Long, Product> lockedProducts = lockProducts(
-                cartItems
-                        .stream()
-                        .map(item -> item.getProduct().getProductId())
-                        .toList()
-        );
-
-        Order order = new Order();
-
-        order.setUser(user);
-        order.setStatus(OrderStatus.CREATED);
-        order.setRecipientName(request.getRecipientName().trim());
-        order.setRecipientPhone(request.getRecipientPhone().trim());
-        order.setCountry(request.getCountry().trim());
-        order.setCity(request.getCity().trim());
-        order.setStreet(request.getStreet().trim());
-        order.setHouse(request.getHouse().trim());
-        order.setApartment(trimToNull(request.getApartment()));
-        order.setPostalCode(trimToNull(request.getPostalCode()));
-
-        BigDecimal totalAmount = BigDecimal.ZERO;
-
-        for (CartItem cartItem : cartItems) {
-            Product product = lockedProducts.get(cartItem.getProduct().getProductId());
-
-            if (product == null || !product.isActive()) {
-                throw new InvalidOperationException(
-                        "Product is not available: " + cartItem.getProduct().getTitle()
-                );
-            }
-
-            int quantity = cartItem.getQuantity();
-
-            if (product.getStock() < quantity) {
-                throw new InvalidOperationException(
-                        "Insufficient stock for product: " + product.getTitle()
-                );
-            }
-
-            product.setStock(product.getStock() - quantity);
-
-            OrderItem orderItem = new OrderItem();
-
-            orderItem.setProduct(product);
-            orderItem.setProductTitle(product.getTitle());
-            orderItem.setUnitPrice(product.getPrice());
-            orderItem.setQuantity(quantity);
-
-            order.addItem(orderItem);
-
-            totalAmount = totalAmount.add(
-                    product.getPrice().multiply(BigDecimal.valueOf(quantity))
-            );
-        }
-
-        order.setTotalAmount(totalAmount);
-
-        Order savedOrder = orderRepository.save(order);
-
-        cartItemRepository.deleteAllItems(cart.getCartId());
-
-        return toDetailsResponse(savedOrder);
-    }
 
     @Transactional(readOnly = true)
-    public PagedResponse<OrderResponse> getOrders(Long userId, OrderListQuery query) {
+    public PagedResponse<ManagedOrderResponse> getOrders(OrderManagementListQuery query) {
         Pageable pageable = PageRequest.of(
                 query.getPage() - 1,
                 query.getLimit(),
                 Sort.by(Sort.Direction.DESC, "createdAt")
         );
 
-        Page<Order> page = orderRepository.findPageByUserId(userId, pageable);
+        Page<Order> page = orderRepository.findPageForManagement(
+                query.getStatus(),
+                query.getUserId(),
+                pageable
+        );
 
         List<Long> orderIds = page
                 .getContent()
@@ -156,7 +80,7 @@ public class OrderService {
                                 Function.identity()
                         ));
 
-        List<OrderResponse> items = page
+        List<ManagedOrderResponse> items = page
                 .getContent()
                 .stream()
                 .map(order -> toResponse(order, summaries.get(order.getOrderId())))
@@ -175,12 +99,20 @@ public class OrderService {
         appliedQuery.put("page", query.getPage());
         appliedQuery.put("limit", query.getLimit());
 
+        if (query.getStatus() != null) {
+            appliedQuery.put("status", query.getStatus());
+        }
+
+        if (query.getUserId() != null) {
+            appliedQuery.put("userId", query.getUserId());
+        }
+
         return new PagedResponse<>(items, pageMeta, appliedQuery);
     }
 
     @Transactional(readOnly = true)
-    public OrderDetailsResponse getOrder(Long userId, Long orderId) {
-        Order order = orderRepository.findDetailsByIdAndUserId(orderId, userId)
+    public ManagedOrderDetailsResponse getOrder(Long orderId) {
+        Order order = orderRepository.findDetailsById(orderId)
                 .orElseThrow(() ->
                         new ResourceNotFoundException("Order not found by id: " + orderId)
                 );
@@ -189,22 +121,40 @@ public class OrderService {
     }
 
     @Transactional
-    public void cancelOrder(Long userId, Long orderId) {
-        Order order = orderRepository.findByIdAndUserIdForUpdate(orderId, userId)
+    public ManagedOrderDetailsResponse updateStatus(Long orderId, UpdateOrderStatusRequest request) {
+        Order order = orderRepository.findByIdForUpdate(orderId)
                 .orElseThrow(() ->
                         new ResourceNotFoundException("Order not found by id: " + orderId)
                 );
 
-        OrderStatus status = order.getStatus();
+        OrderStatus current = order.getStatus();
+        OrderStatus target = request.getStatus();
 
-        if (status != OrderStatus.CREATED && status != OrderStatus.PAID) {
+        if (!canTransition(current, target)) {
             throw new InvalidOperationException(
-                    "Order cannot be cancelled in status " + status
+                    "Cannot change order status from " + current + " to " + target
             );
         }
 
-        order.setStatus(OrderStatus.CANCELLED);
+        if (target == OrderStatus.CANCELLED) {
+            restoreStock(orderId);
+        }
 
+        order.setStatus(target);
+
+        Order refreshed = orderRepository.findDetailsById(orderId)
+                .orElseThrow(() ->
+                        new ResourceNotFoundException("Order not found by id: " + orderId)
+                );
+
+        return toDetailsResponse(refreshed);
+    }
+
+    private boolean canTransition(OrderStatus current, OrderStatus target) {
+        return ALLOWED_TRANSITIONS.getOrDefault(current, Set.of()).contains(target);
+    }
+
+    private void restoreStock(Long orderId) {
         List<OrderItem> items = orderItemRepository.findByOrderIdWithProduct(orderId);
 
         List<Long> productIds = items
@@ -212,13 +162,17 @@ public class OrderService {
                 .map(OrderItem::getProduct)
                 .filter(Objects::nonNull)
                 .map(Product::getProductId)
+                .distinct()
+                .sorted()
                 .toList();
 
         if (productIds.isEmpty()) {
             return;
         }
 
-        Map<Long, Product> lockedProducts = lockProducts(productIds);
+        Map<Long, Product> lockedProducts = productRepository.findForUpdateByIds(productIds)
+                .stream()
+                .collect(Collectors.toMap(Product::getProductId, Function.identity()));
 
         for (OrderItem item : items) {
             Product product = item.getProduct();
@@ -237,29 +191,7 @@ public class OrderService {
         }
     }
 
-    private Map<Long, Product> lockProducts(List<Long> productIds) {
-        List<Long> sortedIds = productIds
-                .stream()
-                .distinct()
-                .sorted()
-                .toList();
-
-        return productRepository.findForUpdateByIds(sortedIds)
-                .stream()
-                .collect(Collectors.toMap(Product::getProductId, Function.identity()));
-    }
-
-    private String trimToNull(String value) {
-        if (value == null) {
-            return null;
-        }
-
-        String trimmed = value.trim();
-
-        return trimmed.isEmpty() ? null : trimmed;
-    }
-
-    private OrderResponse toResponse(Order order, OrderItemsSummaryProjection summary) {
+    private ManagedOrderResponse toResponse(Order order, OrderItemsSummaryProjection summary) {
         int totalQuantity = summary != null && summary.getTotalQuantity() != null
                 ? summary.getTotalQuantity().intValue()
                 : 0;
@@ -268,17 +200,22 @@ public class OrderService {
                 ? summary.getItemCount().intValue()
                 : 0;
 
-        return new OrderResponse(
+        User user = order.getUser();
+
+        return new ManagedOrderResponse(
                 order.getOrderId(),
+                user.getUserId(),
+                user.getEmail(),
                 order.getStatus(),
                 order.getTotalAmount(),
                 totalQuantity,
                 itemCount,
-                order.getCreatedAt()
+                order.getCreatedAt(),
+                order.getUpdatedAt()
         );
     }
 
-    private OrderDetailsResponse toDetailsResponse(Order order) {
+    private ManagedOrderDetailsResponse toDetailsResponse(Order order) {
         List<OrderItem> items = order.getItems();
 
         List<OrderItemResponse> itemResponses = items
@@ -291,8 +228,12 @@ public class OrderService {
                 .mapToInt(OrderItem::getQuantity)
                 .sum();
 
-        return new OrderDetailsResponse(
+        User user = order.getUser();
+
+        return new ManagedOrderDetailsResponse(
                 order.getOrderId(),
+                user.getUserId(),
+                user.getEmail(),
                 order.getStatus(),
                 order.getTotalAmount(),
                 totalQuantity,
