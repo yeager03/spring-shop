@@ -111,6 +111,12 @@ public class AuthenticationService {
     public AuthenticationResult refreshTokens(String rawRefreshToken) {
         String jti = refreshTokenService.extractJti(rawRefreshToken);
 
+        Long userId = sessionRepository.findUserIdByJti(jti)
+                .orElseThrow(InvalidCredentialsException::new);
+        
+        User user = userRepository.findForUpdateById(userId)
+                .orElseThrow(InvalidCredentialsException::new);
+
         Session currentSession = sessionRepository
                 .findForUpdateByJti(jti)
                 .orElseThrow(InvalidCredentialsException::new);
@@ -142,8 +148,6 @@ public class AuthenticationService {
         if (!currentSession.getExpiresAt().isAfter(now)) {
             throw new InvalidCredentialsException();
         }
-
-        User user = currentSession.getUser();
 
         if (!user.isActive()) {
             throw new InvalidCredentialsException();

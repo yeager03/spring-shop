@@ -43,6 +43,16 @@ public interface ProductRepository extends JpaRepository<Product, Long>, JpaSpec
     @Query("""
             SELECT p
             FROM Product p
+            WHERE p.productId = :productId
+            """)
+    Optional<Product> findForUpdateById(
+            @Param("productId") Long productId
+    );
+
+    @Lock(LockModeType.PESSIMISTIC_WRITE)
+    @Query("""
+            SELECT p
+            FROM Product p
             WHERE p.productId IN :ids
             """)
     List<Product> findForUpdateByIds(

@@ -14,6 +14,15 @@ import java.util.Optional;
 
 @Repository
 public interface SessionRepository extends JpaRepository<Session, Long> {
+    @Query("""
+            SELECT s.user.userId
+            FROM Session s
+            WHERE s.jti = :jti
+            """)
+    Optional<Long> findUserIdByJti(
+            @Param("jti") String jti
+    );
+
     @Lock(LockModeType.PESSIMISTIC_WRITE)
     @Query("""
             SELECT s
