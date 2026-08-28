@@ -11,6 +11,7 @@ import com.yeager.shop.order.dto.OrderResponse;
 import com.yeager.shop.order.entity.OrderStatus;
 import com.yeager.shop.order.service.OrderService;
 import org.junit.jupiter.api.AfterEach;
+import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.boot.webmvc.test.autoconfigure.AutoConfigureMockMvc;
@@ -45,7 +46,7 @@ class OrderControllerTest {
     @MockitoBean
     private OrderService orderService;
 
-    @org.junit.jupiter.api.BeforeEach
+    @BeforeEach
     void authenticate() {
         AuthenticatedUserPrincipal principal = new AuthenticatedUserPrincipal(
                 USER_ID,
