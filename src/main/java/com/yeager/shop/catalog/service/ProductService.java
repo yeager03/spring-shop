@@ -157,7 +157,7 @@ public class ProductService {
 
     @Transactional
     public ProductManagementResponse updateProduct(Long productId, UpdateProductRequest request) {
-        Product product = productRepository.findById(productId)
+        Product product = productRepository.findForUpdateById(productId)
                 .orElseThrow(() ->
                         new ResourceNotFoundException("Product not found by id: " + productId)
                 );
@@ -215,7 +215,7 @@ public class ProductService {
 
     @Transactional
     public ProductImageResponse addImage(Long productId, ProductImageUploadRequest request) {
-        Product product = productRepository.findById(productId)
+        Product product = productRepository.findForUpdateById(productId)
                 .orElseThrow(() ->
                         new ResourceNotFoundException("Product not found by id: " + productId)
                 );
@@ -261,6 +261,8 @@ public class ProductService {
 
     @Transactional
     public void deleteImage(Long productId, Long imageId) {
+        lockProduct(productId);
+
         ProductImage image = productImageRepository
                 .findByIdAndProductId(imageId, productId)
                 .orElseThrow(() ->
@@ -293,6 +295,8 @@ public class ProductService {
             Long imageId,
             UpdateProductImageRequest request
     ) {
+        lockProduct(productId);
+
         ProductImage image = productImageRepository
                 .findByIdAndProductId(imageId, productId)
                 .orElseThrow(() ->
@@ -335,7 +339,7 @@ public class ProductService {
 
     @Transactional
     public void deactivateProduct(Long productId) {
-        Product product = productRepository.findById(productId)
+        Product product = productRepository.findForUpdateById(productId)
                 .orElseThrow(() ->
                         new ResourceNotFoundException("Product not found by id: " + productId)
                 );
@@ -345,6 +349,13 @@ public class ProductService {
         }
 
         product.setActive(false);
+    }
+
+    private void lockProduct(Long productId) {
+        productRepository.findForUpdateById(productId)
+                .orElseThrow(() ->
+                        new ResourceNotFoundException("Product not found by id: " + productId)
+                );
     }
 
     private ProductImageResponse toImageResponse(ProductImage image) {
